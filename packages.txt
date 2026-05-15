@@ -1,0 +1,5 @@
+tesseract-ocr
+tesseract-ocr-eng
+tesseract-ocr-hin
+poppler-utils
+libgl1

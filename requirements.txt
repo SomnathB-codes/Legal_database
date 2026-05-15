@@ -1,0 +1,31 @@
+# Core app
+streamlit
+
+# Google Sheets integration
+gspread
+oauth2client
+
+# Data handling (stable combo)
+pandas
+numpy
+
+# PDF processing
+pdfplumber
+pdf2image
+pytesseract
+pypdfium2
+
+# Image processing
+pillow
+opencv-python-headless
+
+# Utilities
+requests
+python-dateutil
+
+
+google-auth
+pandas
+
+deep-translator
+pymupdf
