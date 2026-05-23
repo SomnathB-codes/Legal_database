@@ -421,7 +421,7 @@ max_workers = st.sidebar.slider(
 st.markdown("""
 <div class="card">
 <h1>⚖️ Court Case Processing System</h1>
-<p>Hindi OCR + Google Translation + Metadata + Google Sheets</p>
+<p>OCR + Google Translation + Metadata + Google Sheets</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -429,73 +429,205 @@ st.markdown("""
 # OCR SECTION
 # =========================================================
 st.markdown('<div class="card">', unsafe_allow_html=True)
-st.subheader("📄 Upload Interim Order PDFs")
+st.subheader("📄 Upload Interim & Final Order PDFs")
 
-ocr_files = st.file_uploader("Upload PDF(s)", type=["pdf"], accept_multiple_files=True)
+# =========================================================
+# INIT SESSION STATE
+# =========================================================
+if "uploader_key" not in st.session_state:
+    st.session_state["uploader_key"] = 0
 
+if "processed_files" not in st.session_state:
+    st.session_state["processed_files"] = {}
+
+if "ocr_results" not in st.session_state:
+    st.session_state["ocr_results"] = {}
+
+if "ocr_text_output" not in st.session_state:
+    st.session_state["ocr_text_output"] = ""
+
+if "uploaded_names" not in st.session_state:
+    st.session_state["uploaded_names"] = set()
+if "metadata_uploader_key" not in st.session_state:
+    st.session_state["metadata_uploader_key"] = 0
+
+if "metadata_json" not in st.session_state:
+    st.session_state["metadata_json"] = None
+
+# =========================================================
+# UPLOADER
+# =========================================================
+ocr_files = st.file_uploader(
+    "Upload PDF(s)",
+    type=["pdf"],
+    accept_multiple_files=True,
+    key=f"ocr_uploader_{st.session_state['uploader_key']}"
+)
+
+
+# ==========================
+# CLEAR ALL BUTTON
+# ==========================
+if st.button("🗑 Delete All Uploaded Files"):
+
+    # OCR
+    st.session_state["processed_files"] = {}
+    st.session_state["ocr_results"] = {}
+    st.session_state["ocr_text_output"] = ""
+    st.session_state["uploaded_names"] = set()
+
+    # Metadata
+    st.session_state["metadata_json"] = None
+
+    # Recreate uploaders
+    st.session_state["uploader_key"] += 1
+    st.session_state["metadata_uploader_key"] += 1
+
+    st.success(
+        "All OCR + Metadata files removed"
+    )
+
+    st.rerun()
 ocr_text_output = ""
 ocr_file_names  = []
 
+if "processed_files" not in st.session_state:
+    st.session_state.processed_files = {}
+
+if "ocr_results" not in st.session_state:
+    st.session_state.ocr_results = {}
+
+if "ocr_text_output" not in st.session_state:
+    st.session_state.ocr_text_output = ""
+
+if "uploaded_names" not in st.session_state:
+    st.session_state.uploaded_names = set()
+
 
 if ocr_files:
+
     def natural_sort_key(s):
-        return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", s)]
+        return [
+            int(t) if t.isdigit()
+            else t.lower()
+            for t in re.split(r"(\d+)", s)
+        ]
 
-    ocr_files      = sorted(ocr_files, key=lambda x: natural_sort_key(x.name))
-    ocr_file_names = [f.name for f in ocr_files]
-
-    progress = st.progress(0, text="Starting OCR...")
-
-
-    for i, file in enumerate(ocr_files):
-        progress.progress(
-            int((i / len(ocr_files)) * 100),
-            text=f"OCR: {file.name}  ({i+1}/{len(ocr_files)})"
-        )
-
-        # OCR
-        text = ocr_pdf_fast(
-            file.read(),
-            language,
-            psm_mode,
-            max_workers
-        )
-
-        # TRANSLATE
-        if translate_output:
-
-            with st.spinner(
-                f"Translating {file.name}..."
-            ):
-
-                text = translate_to_english(
-    text,
-    source_language=translation_language
-)
-
-        ocr_text_output += (
-            f"\n--- {file.name} ---\n{text}\n"
-        )
-
-    progress.progress(
-        100,
-        text="OCR Complete"
+    ocr_files = sorted(
+        ocr_files,
+        key=lambda x: natural_sort_key(x.name)
     )
+
+    new_files = []
+
+    for f in ocr_files:
+        if f.name not in st.session_state.uploaded_names:
+            new_files.append(f)
+
+    if new_files:
+
+        progress = st.progress(
+            0,
+            text="Processing new PDF(s)..."
+        )
+
+        for i, file in enumerate(new_files):
+
+            progress.progress(
+                int((i / len(new_files)) * 100),
+                text=f"OCR: {file.name}"
+            )
+
+            try:
+
+                # OCR
+                text = ocr_pdf_fast(
+                    file.read(),
+                    language,
+                    psm_mode,
+                    max_workers
+                )
+
+                # Translation
+                if translate_output:
+
+                    with st.spinner(
+                        f"Translating {file.name}..."
+                    ):
+
+                        text = translate_to_english(
+                            text,
+                            source_language=translation_language
+                        )
+
+                # Cache
+                st.session_state.ocr_results[
+                    file.name
+                ] = text
+
+                st.session_state.uploaded_names.add(
+                    file.name
+                )
+
+            except Exception as e:
+
+                st.error(
+                    f"Error processing {file.name}: {e}"
+                )
+
+        progress.progress(
+            100,
+            text="Done"
+        )
+
+    # Build combined text once
+    combined = ""
+
+    for name in sorted(
+        st.session_state.ocr_results.keys(),
+        key=natural_sort_key
+    ):
+
+        combined += (
+            f"\n--- {name} ---\n"
+            f"{st.session_state.ocr_results[name]}\n"
+        )
+
+    st.session_state.ocr_text_output = combined
 
     st.success(
-        f"OCR completed for "
-        f"{len(ocr_files)} file(s)"
+        f"Loaded "
+        f"{len(st.session_state.ocr_results)} "
+        f"PDF(s)"
     )
 
-    total_chars  = len(ocr_text_output)
-    cells_needed = min(3, -(-total_chars // CHUNK_SIZE))
+    total_chars = len(
+        st.session_state.ocr_text_output
+    )
+
+    cells_needed = min(
+        5,
+        -(-total_chars // CHUNK_SIZE)
+    )
+
     st.info(
-        f"📊 Total OCR text: **{total_chars:,} characters** → "
-        f"will be split across **{cells_needed} cell(s)** "
-        f"(full_text_1 / full_text_2 / full_text_3 / full_text_4 / full_text_5)"
+        f"📊 Total text: "
+        f"{total_chars:,} chars "
+        f"→ {cells_needed} sheet cells"
     )
 
-    st.text_area("Preview OCR Output", ocr_text_output, height=400)
+    st.text_area(
+        "Preview OCR Output",
+        st.session_state.ocr_text_output,
+        height=400
+    )
+
+else:
+    # Reset when user clears uploader
+    st.session_state.processed_files = {}
+    st.session_state.ocr_results = {}
+    st.session_state.ocr_text_output = ""
+    st.session_state.uploaded_names = set()
 
 st.markdown("</div>", unsafe_allow_html=True)
 
@@ -505,7 +637,7 @@ st.markdown("</div>", unsafe_allow_html=True)
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("📊 Upload Metadata PDF")
 
-metadata_file = st.file_uploader("Upload metadata PDF", type=["pdf"], key="metadata")
+metadata_file = st.file_uploader("Upload metadata PDF", type=["pdf"],  key=f"metadata_{st.session_state['metadata_uploader_key']}")
 metadata_json = None
 
 if metadata_file:
@@ -532,15 +664,25 @@ st.markdown("</div>", unsafe_allow_html=True)
 st.markdown('<div class="card">', unsafe_allow_html=True)
 st.subheader("🔗 Merged Output (Auto)")
 
-if metadata_json and ocr_text_output:
+merged_text = st.session_state.get(
+    "ocr_text_output",
+    ""
+)
+
+if metadata_json and merged_text:
+
     final_json = metadata_json.copy()
-    final_json["full_text"] = ocr_text_output
+
+    final_json["full_text"] = merged_text
 
     st.success("✅ Automatically Merged")
     st.markdown("### Final JSON")
     st.json(final_json)
 
-    chunks = split_full_text(ocr_text_output, num_chunks=5)
+    chunks = split_full_text(
+    merged_text,
+    num_chunks=5
+)
     with st.expander("🔍 Preview full_text split across cells"):
         for i, chunk in enumerate(chunks, 1):
             if chunk:
